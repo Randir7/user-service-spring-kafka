@@ -1,0 +1,206 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                             http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!--
+      РОДИТЕЛЬСКИЙ POM (Parent POM):
+      Это ключевая фишка Spring Boot! Мы наследуемся от специального POM,
+      который уже содержит:
+      - Согласованные версии всех Spring-зависимостей (не будет конфликтов версий)
+      - Настроенные плагины Maven (compiler, surefire для тестов)
+      - Зависимости для логирования, тестирования и т.д.
+
+      Ты можешь НЕ указывать версии для большинства библиотек — Spring Boot
+      сам подставит правильные, проверенные версии.
+    -->
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.5.0</version> <!-- Используем последнюю стабильную версию -->
+        <relativePath/> <!-- Ищем parent в Maven репозитории, а не локально -->
+    </parent>
+
+    <groupId>com.github.Randir7</groupId>
+    <artifactId>user-service</artifactId>
+    <version>1.0-SNAPSHOT</version>
+    <name>user-service</name>
+    <description>User Service REST API with Spring Boot</description>
+
+    <properties>
+        <java.version>17</java.version>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <!--
+          Версии для дополнительных зависимостей, которых нет в Spring Boot BOM.
+          Testcontainers нужен для интеграционных тестов.
+        -->
+        <testcontainers.version>1.21.4</testcontainers.version>
+    </properties>
+
+    <!--
+      ЗАВИСИМОСТИ (Dependencies):
+      Spring Boot использует концепцию "стартеров" (starters).
+      Стартер — это набор зависимостей для определенной функциональности.
+      Например, spring-boot-starter-web включает:
+      - Spring MVC (для REST API)
+      - Встроенный Tomcat (веб-сервер)
+      - Jackson (для JSON)
+      - Spring Validation
+      - И другие нужные зависимости
+
+      Это избавляет от ручного подбора совместимых версий!
+    -->
+    <dependencies>
+
+        <!--
+    Spring Kafka: интеграция Spring с Apache Kafka.
+    Даёт KafkaTemplate (продюсер), @KafkaListener (консьюмер),
+    автоконфигурацию сериализаторов и многое другое.
+    Версия управляется spring-boot-starter-parent, поэтому не указывается.
+-->
+        <dependency>
+            <groupId>org.springframework.kafka</groupId>
+            <artifactId>spring-kafka</artifactId>
+        </dependency>
+
+        <!--
+          SPRING BOOT STARTER WEB:
+          Включает всё необходимое для создания REST API:
+          - Spring MVC (фреймворк для веб-приложений)
+          - Встроенный Tomcat (не нужен отдельный веб-сервер!)
+          - Jackson для сериализации/десериализации JSON
+          - Spring Boot Actuator (мониторинг приложения)
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <!--
+          SPRING BOOT STARTER DATA JPA:
+          Включает:
+          - Spring Data JPA (упрощенная работа с БД)
+          - Hibernate (ORM-провайдер, который у тебя уже был)
+          - Spring JDBC
+          - Автоматическую конфигурацию EntityManager
+
+          Заметь: мы НЕ указываем версию Hibernate — Spring Boot сам
+          подставит совместимую версию!
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+
+        <!--
+          SPRING BOOT STARTER VALIDATION:
+          Добавляет поддержку Bean Validation (JSR-380).
+          Позволяет использовать аннотации @NotBlank, @Email, @Min, @Max
+          прямо на полях DTO для автоматической валидации входных данных.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+
+        <!--
+          POSTGRESQL JDBC DRIVER:
+          Драйвер для подключения к PostgreSQL.
+          Scope = runtime означает, что он нужен только во время выполнения,
+          а не во время компиляции (мы не пишем код, специфичный для PostgreSQL).
+        -->
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!--
+          LOMBOK (опционально, но очень удобно):
+          Генерирует геттеры, сеттеры, конструкторы, toString, equals, hashCode
+          на этапе компиляции. Убирает тонны boilerplate-кода.
+          Аннотация @Data генерирует всё сразу.
+          @NoArgsConstructor, @AllArgsConstructor — генерируют конструкторы.
+        -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <!--
+          ТЕСТОВЫЕ ЗАВИСИМОСТИ:
+          Spring Boot Starter Test включает:
+          - JUnit 5 (тестовый фреймворк)
+          - Mockito (мокирование зависимостей)
+          - AssertJ (удобные assertions)
+          - Hamcrest (matchers)
+          - JsonPath (для проверки JSON в тестах)
+          - Spring Test (MockMvc, TestRestTemplate)
+
+          Scope = test означает, что эти зависимости доступны ТОЛЬКО
+          в тестовом коде (src/test/java).
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!--
+          TESTCONTAINERS:
+          Для интеграционных тестов с реальной БД в Docker-контейнере.
+        -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>kafka</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-testcontainers</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!--
+              SPRING BOOT MAVEN PLUGIN:
+              Критически важный плагин! Он делает несколько вещей:
+              1. Упаковывает приложение в "fat JAR" (все зависимости внутри)
+              2. Создает запускаемый JAR с методом main
+              3. Позволяет запускать приложение через mvn spring-boot:run
+              4. Генерирует build-info для Actuator
+            -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <!-- Исключаем Lombok из финального JAR (он нужен только при компиляции) -->
+                        <exclude>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                        </exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>
