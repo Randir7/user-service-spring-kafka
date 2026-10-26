@@ -7,20 +7,20 @@
 
     <!--
       РОДИТЕЛЬСКИЙ POM (Parent POM):
-      Это ключевая фишка Spring Boot! Мы наследуемся от специального POM,
+      Это ключевая особенность Spring Boot! Наследование идет от специального POM,
       который уже содержит:
       - Согласованные версии всех Spring-зависимостей (не будет конфликтов версий)
       - Настроенные плагины Maven (compiler, surefire для тестов)
       - Зависимости для логирования, тестирования и т.д.
 
-      Ты можешь НЕ указывать версии для большинства библиотек — Spring Boot
+      Нельзя указывать версии для большинства библиотек — Spring Boot
       сам подставит правильные, проверенные версии.
     -->
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.5.0</version> <!-- Используем последнюю стабильную версию -->
-        <relativePath/> <!-- Ищем parent в Maven репозитории, а не локально -->
+        <version>3.5.0</version>
+        <relativePath/> <!-- Поиск parent в Maven репозитории, а не локально -->
     </parent>
 
     <groupId>com.github.Randir7</groupId>
@@ -85,9 +85,6 @@
           - Hibernate (ORM-провайдер, который у тебя уже был)
           - Spring JDBC
           - Автоматическую конфигурацию EntityManager
-
-          Заметь: мы НЕ указываем версию Hibernate — Spring Boot сам
-          подставит совместимую версию!
         -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -176,6 +173,20 @@
             <artifactId>spring-boot-testcontainers</artifactId>
             <scope>test</scope>
         </dependency>
+
+        <!-- Swagger/OpenAPI документация с веб-интерфейсом -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>2.8.9</version>
+        </dependency>
+
+        <!-- HATEOAS: поддержка гипермедиа-ссылок в REST-ответах -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-hateoas</artifactId>
+        </dependency>
+
     </dependencies>
 
     <build>

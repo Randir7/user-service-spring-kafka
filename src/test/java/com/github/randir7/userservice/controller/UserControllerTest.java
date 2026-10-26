@@ -5,11 +5,13 @@ import com.github.randir7.userservice.dto.CreateUserRequest;
 import com.github.randir7.userservice.dto.UpdateUserRequest;
 import com.github.randir7.userservice.dto.UserDto;
 import com.github.randir7.userservice.exception.UserNotFoundException;
+import com.github.randir7.userservice.mapper.UserDtoResourceMapper;
 import com.github.randir7.userservice.service.UserService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -44,6 +46,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  *
  * Результат: тест стартует за ~1 секунду вместо ~10.
  *
+ * <p><b>@Import(UserDtoResourceMapper.class)</b> добавляет реальный маппер
+ * в тестовый контекст. Это проще, чем мокать его, потому что маппер —
+ * чистая функция без зависимостей. Контроллер сам вызывает маппер
+ * для преобразования UserDto → UserDtoResource с HATEOAS-ссылками.
+ *
  * <p>Поскольку настоящего UserService в контексте НЕТ, а контроллеру он
  * нужен — передается мок через @MockitoBean.
  *
@@ -51,6 +58,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * описание сценария — в @DisplayName.
  */
 @WebMvcTest(UserController.class)
+@Import(UserDtoResourceMapper.class)
 class UserControllerTest {
     
     @Autowired
@@ -79,21 +87,25 @@ class UserControllerTest {
     // ==================== POST ====================
     
     @Test
-    @DisplayName("POST /users: валидный запрос → 201 + Location + тело")
-    void createShouldReturn201WithLocationHeaderAndBody() throws Exception {
-        // given
+    @DisplayName("POST /users: валидный запрос → 201 + Location + _links")
+    void createShouldReturn201WithLocationHeaderAndLinks() throws Exception {
+        
         when(userService.create(any(CreateUserRequest.class))).thenReturn(sampleDto());
         
-        // when / then
+        
         mockMvc.perform(post("/api/v1/users")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(validRequest())))
                 .andExpect(status().isCreated())
                 // Location собирается из ТЕКУЩЕГО запроса; в MockMvc хост — localhost
                 .andExpect(header().string("Location", "http://localhost/api/v1/users/1"))
+                // Проверка основных полей
                 .andExpect(jsonPath("$.id").value(1))
                 .andExpect(jsonPath("$.name").value("Ivan"))
-                .andExpect(jsonPath("$.email").value("ivan@example.com"));
+                .andExpect(jsonPath("$.email").value("ivan@example.com"))
+                // Проверка HATEOAS-ссылки (добавлены контроллером через UserDtoResource)
+                .andExpect(jsonPath("$._links.self.href").value("http://localhost/api/v1/users/1"))
+                .andExpect(jsonPath("$._links.users.href").value("http://localhost/api/v1/users"));
         
         verify(userService).create(any(CreateUserRequest.class));
     }
@@ -101,10 +113,10 @@ class UserControllerTest {
     @Test
     @DisplayName("POST /users: невалидные поля → 400 с разбивкой ошибок по полям")
     void createWithInvalidFieldsShouldReturn400WithErrorsByFields() throws Exception {
-        // given
+        
         CreateUserRequest bad = new CreateUserRequest("", "not-an-email", -5);
         
-        // when / then
+        
         mockMvc.perform(post("/api/v1/users")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(bad)))
@@ -125,7 +137,7 @@ class UserControllerTest {
         // JSON синтаксически ВАЛИДЕН (инспектор IDE молчит), но тип поля age —
         // строка вместо числа. Jackson бросит InvalidFormatException,
         // Spring обернет его в HttpMessageNotReadableException,
-        // и наш GlobalExceptionHandler вернет 400 с понятным сообщением.
+        // и GlobalExceptionHandler вернет 400 с понятным сообщением.
         // Текст-блок (Java 15+) избавляет от экранирования кавычек.
         String wrongTypeJson = """
             {"name": "Ivan", "email": "ivan@example.com", "age": "twenty-eight"}
@@ -141,17 +153,20 @@ class UserControllerTest {
     // ==================== GET ====================
     
     @Test
-    @DisplayName("GET /users/{id}: найден → 200 + DTO")
-    void getByIdShouldReturn200WithUserDto() throws Exception {
-       
-        when(userService.getById(1L)).thenReturn(sampleDto());
+    @DisplayName("GET /users/{id}: найден → 200 + DTO + _links")
+    void getByIdShouldReturn200WithUserDtoAndLinks() throws Exception {
         
+        when(userService.getById(1L)).thenReturn(sampleDto());
         
         mockMvc.perform(get("/api/v1/users/1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(1))
                 // LocalDateTime сериализуется в строку
-                .andExpect(jsonPath("$.createdAt").value("2026-01-10T12:00:00"));
+                .andExpect(jsonPath("$.createdAt").value("2026-01-10T12:00:00"))
+                // Проверка HATEOAS-ссылки
+                .andExpect(jsonPath("$._links.self.href").value("http://localhost/api/v1/users/1"))
+                .andExpect(jsonPath("$._links.users.href").value("http://localhost/api/v1/users"))
+                .andExpect(jsonPath("$._links.delete.href").value("http://localhost/api/v1/users/1"));
     }
     
     @Test
@@ -176,8 +191,8 @@ class UserControllerTest {
     }
     
     @Test
-    @DisplayName("GET /users: список → 200 + JSON-массив")
-    void findAllShouldReturn200WithUserDtoArray() throws Exception {
+    @DisplayName("GET /users: список → 200 + HAL-коллекция с _embedded и _links")
+    void findAllShouldReturn200WithHalCollection() throws Exception {
         when(userService.findAll()).thenReturn(List.of(
                 sampleDto(),
                 new UserDto(2L, "Petr", "petr@example.com", 30,
@@ -186,16 +201,24 @@ class UserControllerTest {
         
         mockMvc.perform(get("/api/v1/users"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$", hasSize(2)))     // $ — корень JSON: массив
-                .andExpect(jsonPath("$[0].id").value(1))  // [0] — первый элемент
-                .andExpect(jsonPath("$[1].name").value("Petr"));
+                // HAL-структура: _embedded содержит массив ресурсов
+                // Имя поля "userDtoResourceList" генерируется из имени класса
+                // UserDtoResource + "List" (стандарт Spring HATEOAS)
+                .andExpect(jsonPath("$._embedded.userDtoResourceList", hasSize(2)))
+                .andExpect(jsonPath("$._embedded.userDtoResourceList[0].id").value(1))
+                .andExpect(jsonPath("$._embedded.userDtoResourceList[1].name").value("Petr"))
+                // Каждый элемент имеет ссылку self
+                .andExpect(jsonPath("$._embedded.userDtoResourceList[0]._links.self.href")
+                        .value("http://localhost/api/v1/users/1"))
+                // Коллекция имеет ссылку self
+                .andExpect(jsonPath("$._links.self.href").value("http://localhost/api/v1/users"));
     }
     
     // ==================== PUT ====================
     
     @Test
-    @DisplayName("PUT /users/{id}: успешное обновление → 200 + обновленный DTO")
-    void updateShouldReturn200WithUpdatedDto() throws Exception {
+    @DisplayName("PUT /users/{id}: успешное обновление → 200 + обновленный DTO + _links")
+    void updateShouldReturn200WithUpdatedDtoAndLinks() throws Exception {
         UserDto updated = new UserDto(1L, "Ivan P.", "ivan.p@example.com", 29,
                 LocalDateTime.of(2026, 1, 10, 12, 0));
         when(userService.update(anyLong(), any(UpdateUserRequest.class))).thenReturn(updated);
@@ -205,7 +228,10 @@ class UserControllerTest {
                         .content(json(new UpdateUserRequest("Ivan P.", "ivan.p@example.com", 29))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").value("Ivan P."))
-                .andExpect(jsonPath("$.age").value(29));
+                .andExpect(jsonPath("$.age").value(29))
+                // Проверка HATEOAS-ссылки
+                .andExpect(jsonPath("$._links.self.href").value("http://localhost/api/v1/users/1"))
+                .andExpect(jsonPath("$._links.users.href").value("http://localhost/api/v1/users"));
     }
     
     // ==================== DELETE ====================

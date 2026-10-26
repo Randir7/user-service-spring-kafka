@@ -2,7 +2,6 @@ package com.github.randir7.userservice;
 
 import com.github.randir7.userservice.dto.CreateUserRequest;
 import com.github.randir7.userservice.dto.UpdateUserRequest;
-import com.github.randir7.userservice.dto.UserDto;
 import com.github.randir7.userservice.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -25,7 +24,6 @@ import org.testcontainers.utility.DockerImageName;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-
 /**
  * Интеграционный тест ВСЕГО API: HTTP → контроллер → сервис → БД → ответ.
  *
@@ -41,7 +39,11 @@ import static org.assertj.core.api.Assertions.assertThat;
  * сообщает приложению свои host/port/credentials, ПЕРЕЗАПИСЫВАЯ
  * spring.datasource.* из application.yml.
  *
+ * <p><b>KafkaContainer</b> — изолированный брокер Kafka для тестов.
+ * События публикуются в этот тестовый брокер, а не в dev-инфраструктуру.
+ *
  * <p>Имена методов декларативны: [сценарий]Should[Ожидание],
+ * описание сценария — в @DisplayName.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Testcontainers
@@ -75,38 +77,53 @@ class UserApiIntegrationTest {
     }
     
     @Test
-    @DisplayName("Полный CRUD-цикл: create → read → update → delete → 404")
+    @DisplayName("Полный CRUD-цикл с проверкой HATEOAS-ссылок")
     void crudCycleShouldCreateReadUpdateAndDeleteUserWithExpectedStatuses() {
         // 1. CREATE
-        ResponseEntity<UserDto> createdResponse = restTemplate.exchange(
+        // Используем String.class для десериализации, чтобы проверить наличие _links
+        // без создания отдельного DTO-класса для UserDtoResource
+        ResponseEntity<String> createdResponse = restTemplate.exchange(
                 "/api/v1/users", HttpMethod.POST,
                 jsonEntity(new CreateUserRequest("Ivan", "Ivan@Example.COM", 28)),
-                UserDto.class);
+                String.class);
         
         assertThat(createdResponse.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         assertThat(createdResponse.getHeaders().getLocation()).isNotNull();
-        UserDto created = createdResponse.getBody();
-        assertThat(created).isNotNull();
-        assertThat(created.id()).isNotNull();                  // id выдан БД
-        assertThat(created.email()).isEqualTo("ivan@example.com"); // нормализация
-        assertThat(created.createdAt()).isNotNull();           // дата должна быть проставлена
         
-        Long id = created.id();
+        String body = createdResponse.getBody();
+        assertThat(body).isNotNull();
+        assertThat(body).contains("\"email\":\"ivan@example.com\""); // нормализация
+        assertThat(body).contains("\"createdAt\""); // дата должна быть проставлена
+        
+        // Проверяем наличие HATEOAS-ссылок
+        assertThat(body).contains("\"_links\"");
+        assertThat(body).contains("\"self\"");
+        assertThat(body).contains("\"users\"");
+        
+        // Извлекаем id из Location header (формат: http://localhost:8080/api/v1/users/1)
+        String location = createdResponse.getHeaders().getLocation().toString();
+        Long id = Long.parseLong(location.substring(location.lastIndexOf('/') + 1));
+        assertThat(id).isNotNull(); // id выдан БД
         
         // 2. READ
-        ResponseEntity<UserDto> got = restTemplate.getForEntity(
-                "/api/v1/users/" + id, UserDto.class);
+        ResponseEntity<String> got = restTemplate.getForEntity(
+                "/api/v1/users/" + id, String.class);
         assertThat(got.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(got.getBody().name()).isEqualTo("Ivan");
+        assertThat(got.getBody()).contains("\"name\":\"Ivan\"");
+        // Проверяем HATEOAS-ссылки (у getById есть ещё и delete)
+        assertThat(got.getBody()).contains("\"_links\"");
+        assertThat(got.getBody()).contains("\"self\"");
+        assertThat(got.getBody()).contains("\"delete\"");
         
         // 3. UPDATE
-        ResponseEntity<UserDto> updated = restTemplate.exchange(
+        ResponseEntity<String> updated = restTemplate.exchange(
                 "/api/v1/users/" + id, HttpMethod.PUT,
                 jsonEntity(new UpdateUserRequest("Ivan P.", "ivan.p@example.com", 29)),
-                UserDto.class);
+                String.class);
         assertThat(updated.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(updated.getBody().name()).isEqualTo("Ivan P.");
-        assertThat(updated.getBody().age()).isEqualTo(29);
+        assertThat(updated.getBody()).contains("\"name\":\"Ivan P.\"");
+        assertThat(updated.getBody()).contains("\"age\":29");
+        assertThat(updated.getBody()).contains("\"_links\"");
         
         // 4. DELETE
         ResponseEntity<Void> deleted = restTemplate.exchange(
@@ -121,12 +138,43 @@ class UserApiIntegrationTest {
     }
     
     @Test
+    @DisplayName("GET /users: возвращает HAL-коллекцию с _embedded и _links")
+    void findAllShouldReturnHalCollection() {
+        // Создаём двух пользователей
+        restTemplate.exchange("/api/v1/users", HttpMethod.POST,
+                jsonEntity(new CreateUserRequest("Ivan", "ivan@example.com", 28)),
+                String.class);
+        restTemplate.exchange("/api/v1/users", HttpMethod.POST,
+                jsonEntity(new CreateUserRequest("Petr", "petr@example.com", 30)),
+                String.class);
+        
+        // Получаем список
+        ResponseEntity<String> response = restTemplate.getForEntity(
+                "/api/v1/users", String.class);
+        
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        
+        String body = response.getBody();
+        // Проверяем HAL-структуру: CollectionModel оборачивает ресурсы в _embedded
+        assertThat(body).contains("\"_embedded\"");
+        // Имя поля генерируется из имени класса UserDtoResource + "List"
+        assertThat(body).contains("\"userDtoResourceList\"");
+        // Коллекция имеет собственную ссылку self
+        assertThat(body).contains("\"_links\"");
+        assertThat(body).contains("\"self\"");
+        
+        // Проверяем наличие обоих пользователей
+        assertThat(body).contains("ivan@example.com");
+        assertThat(body).contains("petr@example.com");
+    }
+    
+    @Test
     @DisplayName("Дубликат email → 409 Conflict")
     void createWithDuplicateEmailShouldReturn409Conflict() {
         // первый пользователь уже создан
         restTemplate.exchange("/api/v1/users", HttpMethod.POST,
                 jsonEntity(new CreateUserRequest("Ivan", "ivan@example.com", 28)),
-                UserDto.class);
+                String.class);
         
         // второй пользователь с тем же email
         ResponseEntity<String> second = restTemplate.exchange(
